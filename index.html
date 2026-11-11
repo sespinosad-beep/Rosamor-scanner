@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#172033">
+<title>Lector Rosamor · Prototipo</title>
+<style>
+:root{--navy:#172033;--gold:#d7a84b;--bg:#f3f5f8;--green:#16834a;--red:#c63737}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font:16px system-ui,-apple-system,Segoe UI,sans-serif;color:#202938}
+header{background:var(--navy);color:white;padding:22px 18px}header .sub{color:#bfc8d6;font-size:13px;letter-spacing:.08em}
+header h1{margin:5px 0 0;font-size:24px}header strong{color:var(--gold)}
+main{max-width:760px;margin:18px auto;padding:0 14px 40px}.card{background:white;border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:0 3px 14px #1720330d}
+h2{font-size:18px;margin:0 0 12px}.hint{font-size:13px;color:#687386;line-height:1.45}
+button{border:0;border-radius:10px;padding:13px 16px;font-weight:650;font-size:15px;cursor:pointer}
+.primary{background:var(--navy);color:white}.gold{background:var(--gold);color:#202938}.light{background:#e9edf3;color:#202938}.danger{background:#fee8e8;color:#9e2020}
+.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{flex:1;min-width:130px}
+#video{width:100%;max-height:380px;background:#111;border-radius:12px;display:none;object-fit:cover}
+label{display:block;font-size:13px;font-weight:650;margin:12px 0 5px}
+input,textarea{width:100%;border:1px solid #d6dce5;border-radius:9px;padding:12px;font:inherit;background:white}
+textarea{min-height:90px;resize:vertical}
+.status{padding:13px;border-radius:10px;background:#edf1f6;font-weight:650;margin-top:12px}
+.status.ok{background:#e5f6ec;color:#12663a}.status.bad{background:#fee8e8;color:#9e2020}.status.warn{background:#fff4d8;color:#78530a}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.metric{background:#f3f5f8;border-radius:10px;padding:12px}.metric b{display:block;font-size:23px}
+.item{padding:12px 0;border-bottom:1px solid #edf0f4}.item:last-child{border:0}.item small{color:#6d7788;display:block;margin-top:4px}
+footer{text-align:center;color:#8791a0;font-size:12px;padding:20px}
+@media(max-width:500px){.grid{grid-template-columns:1fr 1fr}header h1{font-size:21px}}
+</style>
+</head>
+<body>
+<header><div class="sub">HERRAMIENTA INTERNA · PROTOTIPO</div><h1><strong>ROSAMOR</strong> · Lector de etiquetas</h1></header>
+<main>
+<section class="card">
+<h2>1. Escanear etiqueta</h2>
+<p class="hint">Activa la cámara y encuadra la etiqueta. En este prototipo, la lectura OCR se hace con una foto y el reconocimiento del texto depende del navegador/dispositivo.</p>
+<div class="actions"><button class="primary" id="start">📷 Activar cámara</button><button class="light" id="stop">Detener</button></div>
+<video id="video" autoplay playsinline></video>
+<div class="actions" style="margin-top:10px"><button class="gold" id="capture">📸 Capturar etiqueta</button><button class="light" id="uploadBtn">Elegir foto</button></div>
+<input type="file" id="file" accept="image/*" capture="environment" hidden>
+<canvas id="canvas" hidden></canvas>
+<div id="cameraStatus" class="status">Cámara inactiva. Puedes cargar una foto.</div>
+</section>
+<section class="card">
+<h2>2. Datos detectados / revisión manual</h2>
+<p class="hint">Revisa siempre el OCR antes de registrar. Completa los campos si la etiqueta no se reconoce correctamente.</p>
+<label for="raw">Texto de la etiqueta</label><textarea id="raw" placeholder="Pega aquí el texto reconocido o escribe el contenido de la etiqueta…"></textarea>
+<div class="grid">
+<div><label for="pedido">Pedido</label><input id="pedido" placeholder="Ej. 260123"></div>
+<div><label for="modulo">Módulo</label><input id="modulo" placeholder="Ej. A01 / Armario"></div>
+<div><label for="pieza">Pieza / referencia</label><input id="pieza" placeholder="Ej. COSTADO IZQ."></div>
+<div><label for="cantidad">Cantidad (opcional)</label><input id="cantidad" type="number" min="1" value="1"></div>
+</div>
+<div class="actions" style="margin-top:14px"><button class="primary" id="register">Registrar etiqueta</button><button class="light" id="clear">Limpiar campos</button></div>
+<div id="result" class="status">Pendiente de registrar.</div>
+</section>
+<section class="card">
+<h2>3. Control del pedido</h2>
+<div class="grid"><div class="metric"><span class="hint">Etiquetas registradas</span><b id="total">0</b></div><div class="metric"><span class="hint">Duplicados detectados</span><b id="dupes">0</b></div></div>
+<label for="filter">Filtrar por pedido</label><input id="filter" placeholder="Número de pedido…">
+<div class="actions" style="margin-top:12px"><button class="light" id="export">Exportar CSV</button><button class="danger" id="reset">Borrar historial</button></div>
+<div id="history" style="margin-top:12px"><p class="hint">Todavía no hay etiquetas.</p></div>
+</section>
+<p class="hint">⚠️ Prototipo local: el historial se guarda en este navegador/dispositivo. No sincroniza entre móviles ni se conecta a AMGesco. Para uso real en fábrica habría que añadir OCR fiable, base de datos compartida y reglas de identificación de duplicados.</p>
+</main><footer>ROSAMOR · Prototipo de validación</footer>
+<script>
+const $=id=>document.getElementById(id);
+let stream=null, records=JSON.parse(localStorage.getItem('rosamor_labels')||'[]');
+const save=()=>localStorage.setItem('rosamor_labels',JSON.stringify(records));
+function norm(s){return (s||'').trim().toUpperCase().replace(/\s+/g,' ')}
+function key(r){return [norm(r.pedido),norm(r.modulo),norm(r.pieza)].join('|')}
+function render(){
+ $('total').textContent=records.length;
+ $('dupes').textContent=records.filter(r=>r.duplicate).length;
+ const f=norm($('filter').value);
+ const arr=records.filter(r=>!f||norm(r.pedido).includes(f)).slice().reverse();
+ $('history').innerHTML=arr.length?arr.map(r=>`<div class="item"><b>${esc(r.pedido)} · ${esc(r.modulo)} · ${esc(r.pieza)}</b><small>${new Date(r.time).toLocaleString('es-ES')} · Cantidad: ${esc(r.cantidad)} ${r.duplicate?'· ⚠ DUPLICADO':''}</small></div>`).join(''):'<p class="hint">No hay resultados.</p>';
+}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+$('start').onclick=async()=>{try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});$('video').srcObject=stream;$('video').style.display='block';$('cameraStatus').textContent='Cámara activa. Encuadra la etiqueta y captura.';$('cameraStatus').className='status ok'}catch(e){$('cameraStatus').textContent='No se pudo abrir la cámara. Abre esta web mediante HTTPS y concede permiso.';$('cameraStatus').className='status bad'}};
+$('stop').onclick=()=>{if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('video').style.display='none';$('cameraStatus').textContent='Cámara detenida.';$('cameraStatus').className='status'};
+$('capture').onclick=()=>{if(!stream){$('cameraStatus').textContent='Activa primero la cámara.';return}const v=$('video'),c=$('canvas');if(!v.videoWidth){$('cameraStatus').textContent='Espera a que la cámara esté lista.';return}c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);c.toBlob(b=>{const file=new File([b],'etiqueta.jpg',{type:'image/jpeg'});processImage(file)},'image/jpeg',.9)};
+$('uploadBtn').onclick=()=>$('file').click();
+$('file').onchange=e=>{if(e.target.files[0])processImage(e.target.files[0])};
+async function processImage(file){
+ $('cameraStatus').textContent='Foto cargada. Intentando OCR…';
+ try{
+  if(!('TextDetector' in window)){ $('cameraStatus').textContent='Foto cargada, pero este navegador no incluye OCR nativo. Escribe/pega el texto en el campo inferior y completa Pedido, Módulo y Pieza.';$('cameraStatus').className='status warn';return}
+  const img=await createImageBitmap(file),detector=new TextDetector(),items=await detector.detect(img);
+  const text=items.map(x=>x.rawValue).join('\\n');$('raw').value=text;
+  $('cameraStatus').textContent=text?'Texto detectado. Revisa y completa los campos.':'No se detectó texto; introduce los datos manualmente.';
+  $('cameraStatus').className='status '+(text?'ok':'warn');
+ }catch(e){$('cameraStatus').textContent='No se pudo procesar la foto. Introduce los datos manualmente.';$('cameraStatus').className='status warn'}
+}
+$('register').onclick=()=>{
+ const r={pedido:$('pedido').value.trim(),modulo:$('modulo').value.trim(),pieza:$('pieza').value.trim(),cantidad:$('cantidad').value||1,raw:$('raw').value,time:Date.now()};
+ if(!r.pedido||!r.modulo||!r.pieza){$('result').textContent='Completa Pedido, Módulo y Pieza antes de registrar.';$('result').className='status warn';return}
+ r.duplicate=records.some(x=>key(x)===key(r));
+ records.push(r);save();render();
+ $('result').textContent=r.duplicate?'⚠ DUPLICADO: ya existe esta combinación Pedido + Módulo + Pieza.':'✓ Etiqueta registrada. No consta duplicada en este historial.';
+ $('result').className='status '+(r.duplicate?'bad':'ok');
+};
+$('clear').onclick=()=>{['raw','pedido','modulo','pieza'].forEach(id=>$(id).value='');$('cantidad').value=1;$('result').textContent='Campos limpiados.';$('result').className='status'};
+$('filter').oninput=render;
+$('export').onclick=()=>{const rows=[['Pedido','Modulo','Pieza','Cantidad','Duplicado','Fecha','Texto'],...records.map(r=>[r.pedido,r.modulo,r.pieza,r.cantidad,r.duplicate?'SI':'NO',new Date(r.time).toISOString(),r.raw])];const csv=rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\\r\\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='rosamor-etiquetas.csv';a.click();URL.revokeObjectURL(a.href)};
+$('reset').onclick=()=>{if(confirm('¿Borrar todo el historial guardado en este navegador?')){records=[];save();render();$('result').textContent='Historial borrado.';$('result').className='status'}};
+render();
+</script>
+</body></html>
